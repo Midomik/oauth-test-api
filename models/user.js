@@ -20,6 +20,14 @@ const userSchema = new Schema(
       type: String,
       default: null,
     },
+    facebookAccessToken: {
+      type: String,
+      default: null,
+    },
+    facebookAuthState: {
+      type: String,
+      default: null,
+    },
   },
   {
     versionKey: false,

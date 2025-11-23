@@ -1,31 +1,60 @@
-let facebookAccessToken = null;
+const crypto = require('crypto');
+const User = require('../models/user');
 
 const CLIENT_APP_URL = process.env.APP_CLIENT_URL || 'http://localhost:5173/user-friends';
 
+const startFacebookLogin = async (req, res, next) => {
+  try {
+    const state = crypto.randomBytes(16).toString('hex');
+
+    await User.findByIdAndUpdate(req.user.id, {
+      facebookAuthState: state,
+    });
+
+    res.json({ state });
+  } catch (error) {
+    next(error);
+  }
+};
+
 const getCallback = async (req, res, next) => {
-    try {
-        const code = req.query.code;
-        if (!code) {
-            return res.status(400).send('Missing authorization code');
-        }
+  try {
+    const code = req.query.code;
+    const state = req.query.state;
 
-        console.log('Facebook callback code:', code);
-
-        const tokenData = await getAccessToken(code);
-        console.log('Facebook token response received');
-
-        if (!tokenData || !tokenData.access_token) {
-            console.error('No access_token in token response', tokenData);
-            return res.status(500).send('Failed to obtain access token');
-        }
-
-        facebookAccessToken = tokenData.access_token;
-
-        return res.redirect(CLIENT_APP_URL);
-    } catch (error) {
-        console.error('Error in Facebook callback:', error);
-        next(error);
+    if (!code) {
+      return res.status(400).send('Missing authorization code');
     }
+
+    if (!state) {
+      return res.status(400).send('Missing state parameter');
+    }
+
+    console.log('Facebook callback code:', code);
+
+    const user = await User.findOne({ facebookAuthState: state });
+
+    if (!user) {
+      return res.status(400).send('Invalid state parameter');
+    }
+
+    const tokenData = await getAccessToken(code);
+    console.log('Facebook token response received');
+
+    if (!tokenData || !tokenData.access_token) {
+      console.error('No access_token in token response', tokenData);
+      return res.status(500).send('Failed to obtain access token');
+    }
+
+    user.facebookAccessToken = tokenData.access_token;
+    user.facebookAuthState = null;
+    await user.save();
+
+    return res.redirect(CLIENT_APP_URL);
+  } catch (error) {
+    console.error('Error in Facebook callback:', error);
+    next(error);
+  }
 };
 
 const getAccessToken = async (authorizationCode) => {
@@ -45,6 +74,8 @@ const getAccessToken = async (authorizationCode) => {
     // grant_type is optional for Facebook, but explicit is fine
     grant_type: 'authorization_code',
   }).toString();
+
+  console.log('Exchanging Facebook code using REDIRECT_URI:', REDIRECT_URI);
 
   const encodedClientCredentials = Buffer.from(
     `${CLIENT_ID}:${CLIENT_SECRET}`
@@ -73,69 +104,77 @@ const getAccessToken = async (authorizationCode) => {
 };
 
 const getProfile = async (req, res, next) => {
-    try {
-        if (!facebookAccessToken) {
-            return res.status(401).json({ error: 'Not authorized' });
-        }
-
-        const response = await fetch('https://graph.facebook.com/v2.5/me?fields=name', {
-            method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${facebookAccessToken}`,
-            },
-        });
-
-        const data = await response.json();
-        return res.json(data);
-    } catch (error) {
-        next(error);
+  try {
+    const user = await User.findById(req.user.id);
+    console.log('User:', user);
+    console.log('User facebookAccessToken:', user.facebookAccessToken);
+    if (!user || !user.facebookAccessToken) {
+      return res.status(401).json({ error: 'Not authorized' });
     }
+
+    const response = await fetch('https://graph.facebook.com/v2.5/me?fields=name', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${user.facebookAccessToken}`,
+      },
+    });
+
+    const data = await response.json();
+    return res.json(data);
+  } catch (error) {
+    next(error);
+  }
 };
 
 const getFeed = async (req, res, next) => {
-    try {
-        if (!facebookAccessToken) {
-            return res.status(401).json({ error: 'Not authorized' });
-        }
+  try {
+    const user = await User.findById(req.user.id);
 
-        const response = await fetch('https://graph.facebook.com/v2.5/me/feed?limit=25', {
-            method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${facebookAccessToken}`,
-            },
-        });
-
-        const data = await response.json();
-        return res.json(data);
-    } catch (error) {
-        next(error);
+    if (!user || !user.facebookAccessToken) {
+      return res.status(401).json({ error: 'Not authorized' });
     }
+
+    const response = await fetch('https://graph.facebook.com/v2.5/me/feed?limit=25', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${user.facebookAccessToken}`,
+      },
+    });
+
+    const data = await response.json();
+    return res.json(data);
+  } catch (error) {
+    next(error);
+  }
 };
 
 const getFriends = async (req, res, next) => {
-    try {
-        if (!facebookAccessToken) {
-            return res.status(401).json({ error: 'Not authorized' });
-        }
+  try {
+    const user = await User.findById(req.user.id);
 
-        const response = await fetch('https://graph.facebook.com/v2.5/me/friends?limit=25', {
-            method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${facebookAccessToken}`,
-            },
-        });
-
-        const data = await response.json();
-        return res.json(data);
-    } catch (error) {
-        next(error);
+    if (!user || !user.facebookAccessToken) {
+      return res.status(401).json({ error: 'Not authorized' });
     }
+
+    const response = await fetch('https://graph.facebook.com/v2.5/me/friends?limit=25', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${user.facebookAccessToken}`,
+      },
+    });
+
+    const data = await response.json();
+    return res.json(data);
+  } catch (error) {
+    next(error);
+  }
 };
 
 module.exports = {
-    getCallback,
-    getAccessToken,
-    getProfile,
-    getFeed,
-    getFriends
+  startFacebookLogin,
+  getCallback,
+  getAccessToken,
+  getProfile,
+  getFeed,
+  getFriends,
 };
