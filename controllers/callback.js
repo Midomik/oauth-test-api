@@ -126,28 +126,6 @@ const getProfile = async (req, res, next) => {
   }
 };
 
-const getFeed = async (req, res, next) => {
-  try {
-    const user = await User.findById(req.user.id);
-
-    if (!user || !user.facebookAccessToken) {
-      return res.status(401).json({ error: 'Not authorized' });
-    }
-
-    const response = await fetch('https://graph.facebook.com/v2.5/me/feed?limit=25', {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${user.facebookAccessToken}`,
-      },
-    });
-
-    const data = await response.json();
-    return res.json(data);
-  } catch (error) {
-    next(error);
-  }
-};
-
 const getFriends = async (req, res, next) => {
   try {
     const user = await User.findById(req.user.id);
@@ -156,7 +134,7 @@ const getFriends = async (req, res, next) => {
       return res.status(401).json({ error: 'Not authorized' });
     }
 
-    const response = await fetch('https://graph.facebook.com/v2.5/me/friends?limit=25', {
+    const response = await fetch('https://graph.facebook.com/v2.5/me/friends?limit=25&fields=id,name,picture', {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${user.facebookAccessToken}`,
@@ -175,6 +153,5 @@ module.exports = {
   getCallback,
   getAccessToken,
   getProfile,
-  getFeed,
   getFriends,
 };
